@@ -1,0 +1,9 @@
+# Node modules
+node_modules/
+
+# Angular build output
+dist/
+
+# Environment files
+connections-backend/.env
+connections-frontend/.env
