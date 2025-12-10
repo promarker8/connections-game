@@ -1,0 +1,24 @@
+<div>
+  <h1>Connections</h1>
+
+  <div *ngIf="!puzzle">
+    <input id="room-code-input" type="text" placeholder="Room Code" [(ngModel)]="roomCode" autocomplete="off">
+    <input id="player-name-input" type="text" placeholder="Your Name" [(ngModel)]="playerName" autocomplete="off">
+    <button (click)="joinRoom()">Join Room</button>
+  </div>
+
+  <div *ngIf="puzzle">
+    <p>Time: {{ timeSeconds }}s | Mistakes: {{ mistakes }}</p>
+
+    <div class="words-container">
+      <span *ngFor="let word of words" [class.selected]="selectedWords.includes(word)"
+        (click)="toggleWordSelection(word)">
+        {{ word }}
+      </span>
+    </div>
+
+    <button (click)="submitSelection()">Submit Selection</button>
+  </div>
+
+
+</div>
