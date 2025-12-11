@@ -44,21 +44,16 @@ app.post("/create-room", async (req, res) => {
     }
 });
 
-// Get puzzle for a specific room
-app.get("/room/:code", async (req, res) => {
+app.get("/rooms", async (req, res) => {
     try {
-        const code = req.params.code;
         const { rows } = await pool.query(
-            `SELECT puzzle FROM rooms WHERE code = $1`,
-            [code]
+            `SELECT code, puzzle FROM rooms`
         );
 
-        if (!rows.length) return res.status(404).json({ error: "Room not found" });
-
-        res.json(rows[0].puzzle);
+        res.json(rows);
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: "Failed to get room" });
+        res.status(500).json({ error: "Failed to get rooms" });
     }
 });
 
@@ -105,6 +100,19 @@ app.post("/join-room", async (req, res) => {
     }
 });
 
+app.get("/players", async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT id, room_code, name, mistakes, finished, time_seconds, created_at FROM players`
+        );
+
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Failed to get players" });
+    }
+});
+
 // Player submits their results
 app.post("/submit-result", async (req, res) => {
     try {
@@ -145,6 +153,19 @@ app.get("/room/:code/winner", async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Failed to get winner" });
+    }
+});
+
+app.get("/results", async (req, res) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT id, room_code, player_name, mistakes, finish_time, mistakes FROM results`
+        );
+
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Failed to get results" });
     }
 });
 
