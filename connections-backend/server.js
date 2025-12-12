@@ -62,13 +62,17 @@ app.get("/room/:code", async (req, res) => {
     try {
         const code = req.params.code;
         const { rows } = await pool.query(
-            `SELECT puzzle FROM rooms WHERE code = $1`,
+            `SELECT code, puzzle FROM rooms WHERE code = $1`,
             [code]
         );
 
         if (!rows.length) return res.status(404).json({ error: "Room not found" });
 
-        res.json(rows[0].puzzle);
+        res.json({
+            roomCode: rows[0].code,
+            puzzle: rows[0].puzzle
+        });
+
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Failed to get room" });
@@ -110,6 +114,49 @@ app.get("/players", async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Failed to get players" });
+    }
+});
+
+// Player submits a guess
+app.post("/submit-guess", async (req, res) => {
+    try {
+        const { roomCode, words } = req.body;
+
+        const { rows } = await pool.query(
+            `SELECT puzzle FROM rooms WHERE code = $1`,
+            [roomCode]
+        );
+
+        if (!rows.length) {
+            return res.status(404).json({ result: "room_not_found" });
+        }
+
+        const puzzle = rows[0].puzzle;
+        const groups = puzzle.groups;
+
+        const guessSet = new Set(words.map(w => w.toLowerCase()));
+
+        for (const group of groups) {
+            const groupWords = new Set(group.words.map(w => w.toLowerCase()));
+
+            const isMatch =
+                guessSet.size === groupWords.size &&
+                [...guessSet].every(w => groupWords.has(w));
+
+            if (isMatch) {
+                return res.json({
+                    result: "correct",
+                    groupName: group.name,
+                    connection: group.connection
+                });
+            }
+        }
+
+        return res.json({ result: "incorrect" });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ result: "error", error: "Server error" });
     }
 });
 

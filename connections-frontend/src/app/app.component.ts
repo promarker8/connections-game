@@ -13,6 +13,8 @@ import { HttpClientModule } from '@angular/common/http';
   styleUrls: ['./app.component.css']
 })
 export class AppComponent {
+  isDev = true;
+
   roomCode: string = '';
   playerName: string = '';
   playerId!: number;
@@ -23,54 +25,76 @@ export class AppComponent {
   timeSeconds: number = 0;
   timerInterval: any;
   mistakes: number = 0;
+  isShaking = false;
 
-  // NEW: selected words instead of drag-and-drop
   selectedWords: string[] = [];
+  completedGroups: { name: string; words: string[]; connection: string }[] = [];
+  shakingWords: string[] = [];
+
+  groupColors: { [key: string]: string } = {
+    Yellow: '#f9df6d',
+    Green: '#a0c35a',
+    Blue: '#b0c4ef',
+    Purple: '#b68abfff'
+  };
 
   constructor(private gameService: GameService) { }
 
-  ngOnInit() { }
+  ngOnInit() {
+    if (this.isDev) {
+      this.roomCode = "YBE4I5";
+      this.playerName = "DevTester";
+      setTimeout(() => this.joinRoom(), 100);
+    }
+  }
 
   // Toggle word selection on click
   toggleWordSelection(word: string) {
-    if (this.selectedWords.includes(word)) {
+    const alreadySelected = this.selectedWords.includes(word);
+
+    if (alreadySelected) {
       // Deselect
       this.selectedWords = this.selectedWords.filter(w => w !== word);
-    } else {
-      if (this.selectedWords.length < 4) {
-        this.selectedWords.push(word);
-      }
+      return;
     }
+
+    if (this.selectedWords.length >= 4) {
+      return;
+    }
+    this.selectedWords.push(word);
   }
 
   // Submit the selected words as a guess
   submitSelection() {
-    if (this.selectedWords.length !== 4) {
-      Swal.fire('Oops', 'Select exactly 4 words!', 'warning');
-      return;
-    }
+    if (this.selectedWords.length !== 4) return;
 
-    // Check if all selected words belong to the same category
-    const selectedCategories = this.selectedWords.map(w => this.puzzle.connectionMapping[w]);
-    const uniqueCategories = Array.from(new Set(selectedCategories));
+    const matchingGroup = this.puzzle.groups.find((group: any) =>
+      this.selectedWords.every(w => group.words.includes(w))
+    );
 
-    if (uniqueCategories.length === 1) {
-      // Correct selection
-      const correctCategory = uniqueCategories[0];
+    if (matchingGroup) {
+      console.log("Correct group:", matchingGroup.name, this.selectedWords);
 
-      // Remove selected words from the remaining words
+      // Remove words from main row
       this.words = this.words.filter(w => !this.selectedWords.includes(w));
 
-      Swal.fire('Correct!', `You found all 4 words for "${correctCategory}"!`, 'success');
+      // Add to completed groups
+      this.completedGroups.push({
+        name: matchingGroup.name,
+        words: this.selectedWords.slice(),
+        connection: matchingGroup.connection
+      });
 
-      // Reset selection
       this.selectedWords = [];
     } else {
-      // Wrong selection → count as mistake
+      console.log("Wrong set:", this.selectedWords);
       this.mistakes++;
-      Swal.fire('Wrong!', 'Those words do not belong to the same category.', 'error');
 
-      // Reset selection
+      this.shakingWords = [...this.selectedWords];
+      setTimeout(() => {
+        this.shakingWords = [];
+      }, 500);
+
       this.selectedWords = [];
     }
   }
@@ -80,9 +104,13 @@ export class AppComponent {
       this.playerId = res.playerId;
 
       this.gameService.getPuzzle(this.roomCode).subscribe(puzzleRes => {
-        this.puzzle = puzzleRes;
-        this.categories = this.puzzle.categories;
-        this.words = this.puzzle.words;
+        this.puzzle = puzzleRes.puzzle;
+
+        this.words = this.puzzle.groups
+          .map((g: any) => g.words)
+          .flat();
+
+        this.words = this.shuffleArray(this.words);
 
         this.startTimer();
       });
@@ -90,6 +118,18 @@ export class AppComponent {
     }, err => {
       Swal.fire('Error', err.error?.error || 'Failed to join room', 'error');
     });
+  }
+
+  shuffleArray(array: any[]) {
+    for (let i = array.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+  }
+
+  shuffleWords() {
+    this.words = this.shuffleArray(this.words);
   }
 
   startTimer() {
@@ -102,4 +142,12 @@ export class AppComponent {
   stopTimer() {
     clearInterval(this.timerInterval);
   }
+
+  triggerShake() {
+    this.isShaking = true;
+    setTimeout(() => {
+      this.isShaking = false;
+    }, 500);
+  }
+
 }

@@ -1,5 +1,5 @@
-<div>
-  <h1>Connections</h1>
+<div class="main-container">
+  <h1 class="title">Connections</h1>
 
   <div *ngIf="!puzzle">
     <input id="room-code-input" type="text" placeholder="Room Code" [(ngModel)]="roomCode" autocomplete="off">
@@ -7,17 +7,43 @@
     <button (click)="joinRoom()">Join Room</button>
   </div>
 
-  <div *ngIf="puzzle">
-    <p>Time: {{ timeSeconds }}s | Mistakes: {{ mistakes }}</p>
+  <div class="puzzle-container" *ngIf="puzzle" [class.empty]="words.length === 0">
+    <p class="info">Time: {{ timeSeconds }}s | Mistakes: {{ mistakes }}</p>
+
+    <div *ngFor="let group of completedGroups" class="completed-group rounded"
+      [ngStyle]="{'background-color': groupColors[group.name] || '#ccc'}">
+
+      <div class="connection-text fw-bold">
+        {{ group.connection }}
+      </div>
+
+      <div class="d-flex flex-wrap gap-2">
+        <span *ngFor="let word of group.words">
+          {{ word }}
+        </span>
+      </div>
+
+    </div>
 
     <div class="words-container">
       <span *ngFor="let word of words" [class.selected]="selectedWords.includes(word)"
-        (click)="toggleWordSelection(word)">
+        [class.disabled]="selectedWords.length >= 4 && !selectedWords.includes(word)"
+        (click)="toggleWordSelection(word)" [class.shake]="shakingWords.includes(word)">
         {{ word }}
       </span>
     </div>
 
-    <button (click)="submitSelection()">Submit Selection</button>
+    <div class="buttons">
+      <button class="custom-btn btn" (click)="shuffleWords()">
+        Shuffle
+      </button>
+
+      <button class="custom-btn btn" (click)="submitSelection()" [disabled]="selectedWords.length !== 4">
+        Submit Selection
+      </button>
+
+    </div>
+
   </div>
 
 
