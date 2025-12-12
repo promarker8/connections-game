@@ -21,33 +21,92 @@ pool.query('SELECT NOW()')
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
+const liveRooms = {};
+
+io.on("connection", (socket) => {
+    console.log("Client connected:", socket.id);
+
+    socket.on("joinRoom", ({ roomCode, playerId, playerName }) => {
+        socket.join(roomCode);
+
+        if (!liveRooms[roomCode]) {
+            liveRooms[roomCode] = [];
+        }
+
+        // Prevent duplicates
+        const exists = liveRooms[roomCode].find(p => p.playerId === playerId);
+        if (!exists) {
+            liveRooms[roomCode].push({
+                playerId,
+                name: playerName,
+                score: 0
+            });
+        }
+
+        // Push leaderboard to everyone in room
+        io.to(roomCode).emit("leaderboardUpdate", liveRooms[roomCode]);
+    });
+
+    // When a player updates score
+    socket.on("updateScore", ({ roomCode, playerId, score }) => {
+        if (!liveRooms[roomCode]) return;
+
+        const player = liveRooms[roomCode].find(p => p.playerId === playerId);
+        if (player) player.score = score;
+
+        liveRooms[roomCode].sort((a, b) => b.score - a.score);
+
+        io.to(roomCode).emit("leaderboardUpdate", liveRooms[roomCode]);
+    });
+});
 
 // Simple test route
 app.get('/', (req, res) => {
     res.send('Backend is running!');
 });
 
+// create a room (and puzzles if you have them)
 app.post("/create-room", async (req, res) => {
     try {
-        const { puzzle } = req.body;
+        const { name, puzzle } = req.body || {};
         const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
 
-        await pool.query(
-            `INSERT INTO rooms (code, puzzle) VALUES ($1, $2)`,
-            [roomCode, JSON.stringify(puzzle)]
+        // Create room
+        const roomResult = await pool.query(
+            `INSERT INTO rooms (code, name) VALUES ($1, $2) RETURNING *`,
+            [roomCode, name || null]
         );
 
-        res.json({ roomCode });
+        const roomId = roomResult.rows[0].id;
+
+        let firstRound = null;
+
+        // Create first round if puzzle provided
+        if (puzzle) {
+            const roundResult = await pool.query(
+                `INSERT INTO rounds (room_code, round_number, puzzle) 
+                VALUES ($1, $2, $3) RETURNING *`,
+                [roomCode, 1, JSON.stringify(puzzle)]
+            );
+            firstRound = roundResult.rows[0];
+        }
+
+        res.json({
+            room: roomResult.rows[0],
+            firstRound
+        });
+
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: "Failed to create room" });
     }
 });
 
+// get all rooms
 app.get("/rooms", async (req, res) => {
     try {
         const { rows } = await pool.query(
-            `SELECT code, puzzle FROM rooms`
+            `SELECT id, code, name, created_at FROM rooms`
         );
 
         res.json(rows);
@@ -57,26 +116,115 @@ app.get("/rooms", async (req, res) => {
     }
 });
 
-// Get puzzle for a specific room
-app.get("/room/:code", async (req, res) => {
-    try {
-        const code = req.params.code;
-        const { rows } = await pool.query(
-            `SELECT code, puzzle FROM rooms WHERE code = $1`,
-            [code]
-        );
+// create a round in a specific room
+app.post("/room/:code/create-round", async (req, res) => {
+  try {
+    const roomCode = req.params.code;
+    const { puzzle } = req.body;
 
-        if (!rows.length) return res.status(404).json({ error: "Room not found" });
+    const { rows: roundCount } = await pool.query(
+      `SELECT COUNT(*) FROM rounds WHERE room_code = $1`,
+      [roomCode]
+    );
 
-        res.json({
-            roomCode: rows[0].code,
-            puzzle: rows[0].puzzle
-        });
+    const roundNumber = parseInt(roundCount[0].count) + 1;
 
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Failed to get room" });
+    const result = await pool.query(
+      `INSERT INTO rounds (room_code, round_number, puzzle) 
+      VALUES ($1, $2, $3) RETURNING *`,
+      [roomCode, roundNumber, JSON.stringify(puzzle)]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to create round" });
+  }
+});
+
+// create several rounds for a room in one go
+app.post("/room/:code/create-rounds", async (req, res) => {
+  try {
+    const roomCode = req.params.code;
+    const { rounds } = req.body;
+
+    if (!rounds || !Array.isArray(rounds) || !rounds.length) {
+      return res.status(400).json({ error: "An array of rounds is required" });
     }
+
+    // room exists?
+    const { rows: roomRows } = await pool.query(
+      `SELECT id FROM rooms WHERE code = $1`,
+      [roomCode]
+    );
+    if (!roomRows.length) return res.status(404).json({ error: "Room not found" });
+
+    // get current number of rounds
+    const { rows: roundCount } = await pool.query(
+      `SELECT COUNT(*) FROM rounds WHERE room_code = $1`,
+      [roomCode]
+    );
+    let nextRoundNumber = parseInt(roundCount[0].count) + 1;
+
+    const insertedRounds = [];
+
+    for (const round of rounds) {
+      if (!round.puzzle) continue;
+
+      const result = await pool.query(
+        `INSERT INTO rounds (room_code, round_number, puzzle) VALUES ($1, $2, $3) RETURNING *`,
+        [roomCode, nextRoundNumber, JSON.stringify(round.puzzle) || null]
+      );
+
+      insertedRounds.push(result.rows[0]);
+      nextRoundNumber++;
+    }
+
+    res.json({ rounds: insertedRounds });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to create rounds", details: err.message });
+  }
+});
+
+// get specific round in a specific room
+app.get("/room/:code/round/:number", async (req, res) => {
+  try {
+    const { code, number } = req.params;
+    const { rows } = await pool.query(
+      `SELECT * FROM rounds WHERE room_code = $1 AND round_number = $2`,
+      [code, number]
+    );
+
+    if (!rows.length) return res.status(404).json({ error: "Round not found" });
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to get round" });
+  }
+});
+
+// Get latest round for a room
+app.get("/room/:code/latest-round", async (req, res) => {
+  try {
+    const roomCode = req.params.code;
+
+    const { rows } = await pool.query(
+      `SELECT * FROM rounds 
+       WHERE room_code = $1 
+       ORDER BY round_number DESC 
+       LIMIT 1`,
+      [roomCode]
+    );
+
+    if (!rows.length) return res.status(404).json({ error: "No rounds found for this room" });
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to get latest round" });
+  }
 });
 
 // Player joins a room
@@ -107,7 +255,7 @@ app.post("/join-room", async (req, res) => {
 app.get("/players", async (req, res) => {
     try {
         const { rows } = await pool.query(
-            `SELECT id, room_code, name, mistakes, finished, time_seconds, created_at FROM players`
+            `SELECT id, room_code, name, created_at FROM players`
         );
 
         res.json(rows);
@@ -118,18 +266,13 @@ app.get("/players", async (req, res) => {
 });
 
 // Player submits a guess
-app.post("/submit-guess", async (req, res) => {
+app.post("/round/:roundId/submit-guess", async (req, res) => {
     try {
-        const { roomCode, words } = req.body;
+        const { roundId } = req.params;
+        const { words } = req.body;
 
-        const { rows } = await pool.query(
-            `SELECT puzzle FROM rooms WHERE code = $1`,
-            [roomCode]
-        );
-
-        if (!rows.length) {
-            return res.status(404).json({ result: "room_not_found" });
-        }
+        const { rows } = await pool.query(`SELECT puzzle FROM rounds WHERE id = $1`, [roundId]);
+        if (!rows.length) return res.status(404).json({ result: "round_not_found" });
 
         const puzzle = rows[0].puzzle;
         const groups = puzzle.groups;
@@ -160,60 +303,78 @@ app.post("/submit-guess", async (req, res) => {
     }
 });
 
-// Player submits their results
-app.post("/submit-result", async (req, res) => {
+// end of round submit
+app.post("/room/:code/round/:roundNumber/submit-result", async (req, res) => {
     try {
-        const { playerId, mistakes, timeSeconds } = req.body;
+        const { code, roundNumber } = req.params;
+        const { playerId, mistakes, timeSeconds, points } = req.body;
 
-        await pool.query(
-            `UPDATE players 
-             SET mistakes = $1, time_seconds = $2, finished = TRUE 
-             WHERE id = $3`,
-            [mistakes, timeSeconds, playerId]
+        // Make sure the round exists, and get its ID
+        const { rows: roundRows } = await pool.query(
+            `SELECT id FROM rounds 
+            WHERE room_code=$1 
+            AND round_number=$2`,
+            [code, roundNumber]
         );
 
-        res.json({ success: true });
+        if (!roundRows.length)
+            return res.status(404).json({ error: "Round not found" });
+
+        const roundId = roundRows[0].id;
+
+        // Insert or update score using round_id
+        const result = await pool.query(
+            `INSERT INTO scores (player_id, room_code, round_id, mistakes, time_seconds, points)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING *`,
+            [playerId, code, roundId, mistakes, timeSeconds, points]
+        );
+
+        console.log("through the first insert:", roundId);
+
+        // Build leaderboard
+        const { rows: leaderboard } = await pool.query(
+            `SELECT p.name, SUM(s.points) AS total_points
+             FROM scores s
+             JOIN players p ON p.id = s.player_id
+             WHERE p.room_code = $1
+             GROUP BY p.name
+             ORDER BY total_points DESC`,
+            [code]
+        );
+
+        io.to(code).emit("leaderboardUpdate", leaderboard);
+
+        res.json(result.rows[0]);
+
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Failed to submit result" });
+        console.error("Error submitting result:", err);
+        res.status(500).json({
+            error: "Failed to submit result",
+            details: err.message
+        });
     }
 });
 
-// Get winner for a room
-app.get("/room/:code/winner", async (req, res) => {
-    try {
-        const roomCode = req.params.code;
+app.get("/room/:code/leaderboard", async (req, res) => {
+  try {
+    const roomCode = req.params.code;
 
-        // Fetch all finished players in this room
-        const { rows } = await pool.query(
-            `SELECT name, mistakes, time_seconds 
-             FROM players 
-             WHERE room_code = $1 AND finished = TRUE
-             ORDER BY mistakes ASC, time_seconds ASC
-             LIMIT 1`,
-            [roomCode]
-        );
+    const { rows } = await pool.query(
+      `SELECT p.name, SUM(s.points) as total_points
+       FROM scores s
+       JOIN players p ON p.id = s.player_id
+       WHERE p.room_code = $1
+       GROUP BY p.name
+       ORDER BY total_points DESC`,
+      [roomCode]
+    );
 
-        if (!rows.length) return res.status(404).json({ error: "No finished players yet" });
-
-        res.json({ winner: rows[0] });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Failed to get winner" });
-    }
-});
-
-app.get("/results", async (req, res) => {
-    try {
-        const { rows } = await pool.query(
-            `SELECT id, room_code, player_name, mistakes, finish_time, mistakes FROM results`
-        );
-
-        res.json(rows);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: "Failed to get results" });
-    }
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to get leaderboard" });
+  }
 });
 
 server.listen(process.env.PORT || 3000, () => {

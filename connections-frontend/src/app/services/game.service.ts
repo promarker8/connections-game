@@ -15,16 +15,24 @@ export class GameService {
     return this.http.post(`${this.baseUrl}/join-room`, { roomCode, playerName });
   }
 
-  getPuzzle(roomCode: string): Observable<any> {
-    return this.http.get(`${this.baseUrl}/room/${roomCode}`);
+  getLatestRound(roomCode: string): Observable<any> {
+    return this.http.get(`${this.baseUrl}/room/${roomCode}/latest-round`);
   }
 
-  submitResult(playerId: number, mistakes: number, timeSeconds: number): Observable<any> {
-    return this.http.post(`${this.baseUrl}/submit-result`, { playerId, mistakes, timeSeconds });
+  submitRoundResult(roomCode: string, roundNumber: number, playerId: number, mistakes: number, timeSeconds: number, points: number): Observable<any> {
+    return this.http.post(`${this.baseUrl}/room/${roomCode}/round/${roundNumber}/submit-result`, { playerId, mistakes, timeSeconds, points });
   }
 
-  getWinner(roomCode: string): Observable<any> {
-    return this.http.get(`${this.baseUrl}/room/${roomCode}/winner`);
-  }
+  // getPuzzle(roomCode: string): Observable<any> {
+  //   return this.http.get(`${this.baseUrl}/room/${roomCode}`);
+  // }
+
+  // submitResult(playerId: number, mistakes: number, timeSeconds: number): Observable<any> {
+  //   return this.http.post(`${this.baseUrl}/submit-result`, { playerId, mistakes, timeSeconds });
+  // }
+
+  // getWinner(roomCode: string): Observable<any> {
+  //   return this.http.get(`${this.baseUrl}/room/${roomCode}/winner`);
+  // }
 }
 

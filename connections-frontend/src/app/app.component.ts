@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { GameService } from './services/game.service';
 import Swal from 'sweetalert2';
 import { HttpClientModule } from '@angular/common/http';
+import { SocketService } from './services/socket.service';
 
 @Component({
   selector: 'app-root',
@@ -15,7 +16,9 @@ import { HttpClientModule } from '@angular/common/http';
 export class AppComponent {
   isDev = true;
 
+  // puzzle
   roomCode: string = '';
+  roundId!: number;
   playerName: string = '';
   playerId!: number;
   puzzle: any;
@@ -26,6 +29,16 @@ export class AppComponent {
   timerInterval: any;
   mistakes: number = 0;
   isShaking = false;
+
+  // game/player stats
+  maxMistakes = 4;
+  groupPoints = 20;
+  mistakePenalty = 10;
+  speedDivider = 2; // smaller = bigger bonus
+  maxTime = 300; // 5 mins
+  finalScore = 0;
+  puzzleCompleted = false;
+  leaderboardPlayers: any[] = [];
 
   selectedWords: string[] = [];
   completedGroups: { name: string; words: string[]; connection: string }[] = [];
@@ -38,18 +51,45 @@ export class AppComponent {
     Purple: '#b68abfff'
   };
 
-  constructor(private gameService: GameService) { }
+  constructor(private gameService: GameService, private socketService: SocketService) { }
 
   ngOnInit() {
     if (this.isDev) {
-      this.roomCode = "YBE4I5";
-      this.playerName = "DevTester";
+      this.roomCode = "HYE7N9";
+      this.playerName = "DevTesterAdmin";
       setTimeout(() => this.joinRoom(), 100);
     }
+    this.socketService.onLeaderboardUpdate(players => {
+      this.leaderboardPlayers = players;
+    });
+  }
+
+  joinRoom() {
+    this.gameService.joinRoom(this.roomCode, this.playerName).subscribe(res => {
+      this.playerId = res.playerId;
+
+      this.gameService.getLatestRound(this.roomCode).subscribe(round => {
+        this.puzzle = round.puzzle;
+        this.roundId = round.id;
+
+        this.words = this.puzzle.groups
+          .map((g: any) => g.words)
+          .flat();
+
+        this.words = this.shuffleArray(this.words);
+
+        this.startTimer();
+      });
+
+
+    }, err => {
+      Swal.fire('Error', err.error?.error || 'Failed to join room', 'error');
+    });
   }
 
   // Toggle word selection on click
   toggleWordSelection(word: string) {
+    if (this.shakingWords.length) return;
     const alreadySelected = this.selectedWords.includes(word);
 
     if (alreadySelected) {
@@ -86,9 +126,18 @@ export class AppComponent {
       });
 
       this.selectedWords = [];
+
+        if (this.completedGroups.length === 4 && !this.puzzleCompleted) {
+    this.onPuzzleCompleted();
+  }
     } else {
       console.log("Wrong set:", this.selectedWords);
       this.mistakes++;
+        if (this.mistakes >= this.maxMistakes) {
+          this.mistakes = this.maxMistakes;
+          this.onPuzzleCompleted();
+          return;
+        }
 
       this.shakingWords = [...this.selectedWords];
       setTimeout(() => {
@@ -99,24 +148,68 @@ export class AppComponent {
     }
   }
 
-  joinRoom() {
-    this.gameService.joinRoom(this.roomCode, this.playerName).subscribe(res => {
-      this.playerId = res.playerId;
+  calculateScore(): number {
+    const correctGroups = this.completedGroups.length;
+    const base = correctGroups * this.groupPoints;
 
-      this.gameService.getPuzzle(this.roomCode).subscribe(puzzleRes => {
-        this.puzzle = puzzleRes.puzzle;
+    const penalty = this.mistakes * this.mistakePenalty;
+    const speedBonus = Math.max(0, (this.maxTime - this.timeSeconds) / this.speedDivider);
 
-        this.words = this.puzzle.groups
-          .map((g: any) => g.words)
-          .flat();
+    let score = base + speedBonus - penalty;
 
-        this.words = this.shuffleArray(this.words);
+    return Math.max(0, Math.round(score)); // never negative
+  }
 
-        this.startTimer();
-      });
+  onPuzzleCompleted() {
+    if (this.puzzleCompleted) return;
+    this.puzzleCompleted = true;
 
-    }, err => {
-      Swal.fire('Error', err.error?.error || 'Failed to join room', 'error');
+    this.stopTimer();
+
+    this.finalScore = this.calculateScore();
+
+    this.gameService.submitRoundResult(
+      this.roomCode,
+      this.roundId,
+      this.playerId,
+      this.mistakes,
+      this.timeSeconds,
+      this.finalScore
+    ).subscribe({
+      next: () => console.log('Result submitted'),
+      error: err => console.error('Failed to submit result', err)
+    });
+
+    Swal.fire({
+      title: "Round Finished",
+      html: `
+        <b>Correct Groups:</b> ${this.completedGroups.length}/4<br>
+        <b>Mistakes:</b> ${this.mistakes}/${this.maxMistakes}<br>
+        <b>Time:</b> ${this.timeSeconds}s<br><br>
+        <b>Score:</b> ${this.finalScore}
+      `,
+      icon: "info",
+      confirmButtonText: "Start Next Round"
+    }).then(() => {
+      this.loadNextRound();
+    });
+  }
+
+  loadNextRound() {
+    this.gameService.getLatestRound(this.roomCode).subscribe(round => {
+      this.puzzle = round.puzzle;
+      this.roundId = round.round_number;
+      this.words = this.puzzle.groups.map((g: any) => g.words).flat();
+      this.words = this.shuffleArray(this.words);
+
+      // reset stats
+      this.timeSeconds = 0;
+      this.mistakes = 0;
+      this.puzzleCompleted = false;
+      this.completedGroups = [];
+      this.selectedWords = [];
+
+      this.startTimer();
     });
   }
 
@@ -130,6 +223,10 @@ export class AppComponent {
 
   shuffleWords() {
     this.words = this.shuffleArray(this.words);
+  }
+
+  deselectAll() {
+    this.selectedWords = [];
   }
 
   startTimer() {

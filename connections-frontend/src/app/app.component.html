@@ -13,7 +13,7 @@
     <div *ngFor="let group of completedGroups" class="completed-group rounded"
       [ngStyle]="{'background-color': groupColors[group.name] || '#ccc'}">
 
-      <div class="connection-text fw-bold">
+      <div class="connection-text">
         {{ group.connection }}
       </div>
 
@@ -38,8 +38,12 @@
         Shuffle
       </button>
 
+      <button class="custom-btn btn" (click)="deselectAll()" [disabled]="selectedWords.length == 0">
+        Deselect All
+      </button>
+
       <button class="custom-btn btn" (click)="submitSelection()" [disabled]="selectedWords.length !== 4">
-        Submit Selection
+        Submit
       </button>
 
     </div>
