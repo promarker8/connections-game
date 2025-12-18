@@ -1,52 +1,76 @@
 <div class="main-container">
-  <h1 class="title">Connections</h1>
+  <div>
+    <h1 class="title">Connections</h1>
 
-  <div *ngIf="!puzzle">
-    <input id="room-code-input" type="text" placeholder="Room Code" [(ngModel)]="roomCode" autocomplete="off">
-    <input id="player-name-input" type="text" placeholder="Your Name" [(ngModel)]="playerName" autocomplete="off">
-    <button (click)="joinRoom()">Join Room</button>
-  </div>
+    <div *ngIf="!puzzle">
+      <input id="room-code-input" type="text" placeholder="Room Code" [(ngModel)]="roomCode" autocomplete="off">
+      <input id="player-name-input" type="text" placeholder="Your Name" [(ngModel)]="playerName" autocomplete="off">
+      <button (click)="joinRoom()">Join Room</button>
+    </div>
 
-  <div class="puzzle-container" *ngIf="puzzle" [class.empty]="words.length === 0">
-    <p class="info">Time: {{ timeSeconds }}s | Mistakes: {{ mistakes }}</p>
+    <div class="puzzle-container" *ngIf="puzzle" [class.empty]="words.length === 0">
+      <p class="info">Time: {{ timeSeconds }}s | Mistakes: {{ mistakes }}</p>
 
-    <div *ngFor="let group of completedGroups" class="completed-group rounded"
-      [ngStyle]="{'background-color': groupColors[group.name] || '#ccc'}">
+      <div *ngFor="let group of completedGroups" class="completed-group rounded"
+        [ngStyle]="{'background-color': groupColors[group.name] || '#ccc'}">
 
-      <div class="connection-text">
-        {{ group.connection }}
+        <div class="connection-text">
+          {{ group.connection }}
+        </div>
+
+        <div class="d-flex flex-wrap gap-2">
+          <span *ngFor="let word of group.words">
+            {{ word }}
+          </span>
+        </div>
+
       </div>
 
-      <div class="d-flex flex-wrap gap-2">
-        <span *ngFor="let word of group.words">
+      <div class="words-container">
+        <span *ngFor="let word of words"
+          [class.selected]="selectedWords.includes(word)"
+          [class.disabled]="selectedWords.length >= 4 && !selectedWords.includes(word)"
+          [class.shake]="shakingWords.includes(word)"
+          [class.lift]="liftingWords.includes(word)"
+          [class.fly-to-row]="flyingWords.includes(word)"
+          (click)="toggleWordSelection(word)">
           {{ word }}
         </span>
       </div>
 
+      <div class="mistakes-container">
+        <div
+          class="mistakes-bubble"
+          *ngFor="let bubble of range(maxMistakes); let i = index"
+          [class.mistake-made]="i >= maxMistakes - mistakes">
+        </div>
+      </div>
+
+      <div class="buttons">
+        <button class="custom-btn btn" (click)="shuffleWords()">
+          Shuffle
+        </button>
+
+        <button class="custom-btn btn" (click)="deselectAll()" [disabled]="selectedWords.length == 0">
+          Deselect All
+        </button>
+
+        <button id="submit-btn" class="custom-btn btn" (click)="submitSelection()" [disabled]="selectedWords.length !== 4">
+          Submit
+        </button>
+
+      </div>
+
     </div>
+  </div>
 
-    <div class="words-container">
-      <span *ngFor="let word of words" [class.selected]="selectedWords.includes(word)"
-        [class.disabled]="selectedWords.length >= 4 && !selectedWords.includes(word)"
-        (click)="toggleWordSelection(word)" [class.shake]="shakingWords.includes(word)">
-        {{ word }}
-      </span>
-    </div>
-
-    <div class="buttons">
-      <button class="custom-btn btn" (click)="shuffleWords()">
-        Shuffle
-      </button>
-
-      <button class="custom-btn btn" (click)="deselectAll()" [disabled]="selectedWords.length == 0">
-        Deselect All
-      </button>
-
-      <button class="custom-btn btn" (click)="submitSelection()" [disabled]="selectedWords.length !== 4">
-        Submit
-      </button>
-
-    </div>
+  <div class="w-100 d-flex justify-content-end">
+    <button
+      *ngIf="showNextRoundButton"
+      class="btn btn-sm next-round-btn"
+      (click)="goToNextRound()">
+      <span>NEXT ROUND</span>
+    </button>
 
   </div>
 

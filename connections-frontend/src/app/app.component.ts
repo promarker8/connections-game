@@ -31,6 +31,7 @@ export class AppComponent {
   isShaking = false;
 
   // game/player stats
+  currentRoundNumber!: number;
   maxMistakes = 4;
   groupPoints = 20;
   mistakePenalty = 10;
@@ -38,11 +39,17 @@ export class AppComponent {
   maxTime = 300; // 5 mins
   finalScore = 0;
   puzzleCompleted = false;
+  roundFinished = false;
+  showNextRoundButton = false;
   leaderboardPlayers: any[] = [];
 
+  // for scoring and animation
   selectedWords: string[] = [];
   completedGroups: { name: string; words: string[]; connection: string }[] = [];
   shakingWords: string[] = [];
+  liftingWords: string[] = [];
+  flyingWords: string[] = [];
+  inputLocked = false;
 
   groupColors: { [key: string]: string } = {
     Yellow: '#f9df6d',
@@ -55,7 +62,7 @@ export class AppComponent {
 
   ngOnInit() {
     if (this.isDev) {
-      this.roomCode = "HYE7N9";
+      this.roomCode = "4X4THI";
       this.playerName = "DevTesterAdmin";
       setTimeout(() => this.joinRoom(), 100);
     }
@@ -64,26 +71,40 @@ export class AppComponent {
     });
   }
 
+  // loadRound(round: any) {
+  //   this.puzzle = round.puzzle;
+  //   this.roundId = round.id; // DB id for submissions
+  //   this.currentRoundNumber = round.round_number; // track number separately if needed
+
+  //   this.words = this.puzzle.groups
+  //   .map((g: any) => g.words)
+  //   .flat();
+  //   this.words = this.shuffleArray(this.words);
+
+  //   // Reset stats
+  //   this.timeSeconds = 0;
+  //   this.mistakes = 0;
+  //   this.puzzleCompleted = false;
+  //   this.completedGroups = [];
+  //   this.selectedWords = [];
+
+  //   this.startTimer();
+  // }
+
   joinRoom() {
-    this.gameService.joinRoom(this.roomCode, this.playerName).subscribe(res => {
-      this.playerId = res.playerId;
-
-      this.gameService.getLatestRound(this.roomCode).subscribe(round => {
-        this.puzzle = round.puzzle;
-        this.roundId = round.id;
-
-        this.words = this.puzzle.groups
-          .map((g: any) => g.words)
-          .flat();
-
-        this.words = this.shuffleArray(this.words);
-
-        this.startTimer();
-      });
-
-
-    }, err => {
-      Swal.fire('Error', err.error?.error || 'Failed to join room', 'error');
+    this.gameService.joinRoom(this.roomCode, this.playerName).subscribe({
+      next: (res) => {
+        this.playerId = res.playerId;
+        this.playerName = res.name;
+        this.loadNextRound();
+      },
+      error: (err) => {
+        if (err.status === 409) {
+          Swal.fire('Name Taken', 'That name is already in use in this room. Please choose another.', 'warning');
+        } else {
+          Swal.fire('Error', err.error?.error || 'Failed to join room', 'error');
+        }
+      }
     });
   }
 
@@ -104,47 +125,112 @@ export class AppComponent {
     this.selectedWords.push(word);
   }
 
-  // Submit the selected words as a guess
-  submitSelection() {
-    if (this.selectedWords.length !== 4) return;
+  // Submit the selected words as a guess - old without animations on the words and row etc
+  // submitSelection() {
+  //   if (this.selectedWords.length !== 4) return;
 
+  //   const matchingGroup = this.puzzle.groups.find((group: any) =>
+  //     this.selectedWords.every(w => group.words.includes(w))
+  //   );
+
+  //   if (matchingGroup) {
+  //     console.log("Correct group:", matchingGroup.name, this.selectedWords);
+
+  //     // Remove words from main row
+  //     this.words = this.words.filter(w => !this.selectedWords.includes(w));
+
+  //     // Add to completed groups
+  //     this.completedGroups.push({
+  //       name: matchingGroup.name,
+  //       words: this.selectedWords.slice(),
+  //       connection: matchingGroup.connection
+  //     });
+
+  //     this.selectedWords = [];
+
+  //       if (this.completedGroups.length === 4 && !this.puzzleCompleted) {
+  //   this.onPuzzleCompleted();
+  // }
+  //   } else {
+  //     console.log("Wrong set:", this.selectedWords);
+  //     this.mistakes++;
+  //       if (this.mistakes >= this.maxMistakes) {
+  //         this.mistakes = this.maxMistakes;
+  //         this.onPuzzleCompleted();
+  //         return;
+  //       }
+
+  //     this.shakingWords = [...this.selectedWords];
+  //     setTimeout(() => {
+  //       this.shakingWords = [];
+  //     }, 500);
+
+  //     this.selectedWords = [];
+  //   }
+  // }
+
+  // needed to make animations work
+  async submitSelection() {
+    if (this.selectedWords.length !== 4 || this.inputLocked) return;
+
+    this.inputLocked = true;
+
+    // Lift animation, one by one
+    for (const word of this.selectedWords) {
+      this.liftingWords = [word];
+      await this.delay(240);
+    }
+
+    this.liftingWords = [];
+    await this.delay(50);
+
+    await this.checkSelection();
+  }
+
+  async checkSelection() {
     const matchingGroup = this.puzzle.groups.find((group: any) =>
       this.selectedWords.every(w => group.words.includes(w))
     );
 
     if (matchingGroup) {
-      console.log("Correct group:", matchingGroup.name, this.selectedWords);
+      // Fly words
+      this.flyingWords = [...this.selectedWords];
+      await this.delay(400);
 
-      // Remove words from main row
+      // Remove words from grid
       this.words = this.words.filter(w => !this.selectedWords.includes(w));
+      this.flyingWords = [];
 
-      // Add to completed groups
+      // Add completed row
       this.completedGroups.push({
         name: matchingGroup.name,
-        words: this.selectedWords.slice(),
+        words: [...this.selectedWords],
         connection: matchingGroup.connection
       });
 
       this.selectedWords = [];
+      this.inputLocked = false;
 
-        if (this.completedGroups.length === 4 && !this.puzzleCompleted) {
-    this.onPuzzleCompleted();
-  }
+      if (this.completedGroups.length === 4 && !this.puzzleCompleted) {
+        this.onPuzzleCompleted();
+      }
+
     } else {
-      console.log("Wrong set:", this.selectedWords);
       this.mistakes++;
-        if (this.mistakes >= this.maxMistakes) {
-          this.mistakes = this.maxMistakes;
-          this.onPuzzleCompleted();
-          return;
-        }
+
+      if (this.mistakes >= this.maxMistakes) {
+        this.mistakes = this.maxMistakes;
+        this.inputLocked = false;
+        this.onPuzzleCompleted();
+        return;
+      }
 
       this.shakingWords = [...this.selectedWords];
-      setTimeout(() => {
-        this.shakingWords = [];
-      }, 500);
+      await this.delay(500);
 
+      this.shakingWords = [];
       this.selectedWords = [];
+      this.inputLocked = false;
     }
   }
 
@@ -160,57 +246,221 @@ export class AppComponent {
     return Math.max(0, Math.round(score)); // never negative
   }
 
+  // onPuzzleCompleted() {
+  //   if (this.puzzleCompleted) return;
+
+  //   this.puzzleCompleted = true;
+
+  //   this.stopTimer();
+
+  //   this.finalScore = this.calculateScore();
+
+  //   this.gameService.submitRoundResult(
+  //     this.roomCode,
+  //     this.currentRoundNumber,
+  //     this.playerId,
+  //     this.mistakes,
+  //     this.timeSeconds,
+  //     this.finalScore
+  //   ).subscribe({
+  //     next: () => console.log('Result submitted'),
+  //     error: err => console.error('Failed to submit result', err)
+  //   });
+
+  //   const leader = this.leaderboardPlayers[0];
+
+  //   Swal.fire({
+  //     title: "Round Finished",
+  //     html: `
+  //       <b>Correct Groups:</b> ${this.completedGroups.length}/4<br>
+  //       <b>Mistakes:</b> ${this.mistakes}/${this.maxMistakes}<br>
+  //       <b>Time:</b> ${this.timeSeconds}s<br><br>
+  //       <b>Score:</b> ${this.finalScore}
+  //       <b>Current Leader:</b><br>
+  //       ${leader ? `${leader.name} — ${leader.score ?? leader.total_points} pts` : 'No leader yet'}
+  //     `,
+  //     icon: "info",
+  //     confirmButtonText: "Okay"
+  //   // }).then(() => {
+  //   //   this.loadNextRound();
+  //   });
+  //   this.showNextRoundButton = true;
+  // }
+
+
+
+
+  // loadNextRound() {
+  //   this.gameService.getLatestRound(this.roomCode).subscribe(round => {
+  //     this.puzzle = round.puzzle;
+  //     this.roundId = round.round_number;
+  //     this.words = this.puzzle.groups.map((g: any) => g.words).flat();
+  //     this.words = this.shuffleArray(this.words);
+
+  //     // reset stats
+  //     this.timeSeconds = 0;
+  //     this.mistakes = 0;
+  //     this.puzzleCompleted = false;
+  //     this.completedGroups = [];
+  //     this.selectedWords = [];
+
+  //     this.startTimer();
+  //   });
+  // }
+
+  formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
+}
+
   onPuzzleCompleted() {
     if (this.puzzleCompleted) return;
+
     this.puzzleCompleted = true;
-
     this.stopTimer();
-
     this.finalScore = this.calculateScore();
+    const completedMessage = (this.mistakes < this.maxMistakes) ? "ROUND COMPLETED" : "HARD LUCK";
 
+    // Listen for leaderboard update *before* submitting score
+    const handleLeaderboard = (players: any[]) => {
+      const leader = players[0];
+      // Swal.fire({
+      //   title: "Round Finished",
+      //   html: `
+      //     <b>Correct Groups:</b> ${this.completedGroups.length}/4<br>
+      //     <b>Mistakes:</b> ${this.mistakes}/${this.maxMistakes}<br>
+      //     <b>Time:</b> ${this.timeSeconds}s<br><br>
+      //     <b>Score:</b> ${this.finalScore}<br>
+      //     <b>Current Leader:</b><br>
+      //     ${leader ? `${leader.name} — ${leader.score ?? leader.total_points} pts` : 'No leader yet'}
+      //   `,
+      //   icon: "info",
+      //   confirmButtonText: "Okay"
+      // });
+
+      // Remove listener after first trigger
+      this.socketService.socket.off('leaderboardUpdate', handleLeaderboard);
+    };
+
+    this.socketService.socket.on('leaderboardUpdate', handleLeaderboard);
+
+    // Submit score
     this.gameService.submitRoundResult(
       this.roomCode,
-      this.roundId,
+      this.currentRoundNumber,
       this.playerId,
       this.mistakes,
       this.timeSeconds,
       this.finalScore
     ).subscribe({
-      next: () => console.log('Result submitted'),
+      next: () => {
+        // Get latest leaderboard after score submission
+        this.gameService.getLeaderboard(this.roomCode).subscribe(players => {
+          const leader = players[0];
+          Swal.fire({
+            title: completedMessage,
+            html: `
+              <hr>
+
+              <div class="stats-section">
+                <div class="stat">
+                  <div>${this.currentRoundNumber}</div>
+                  <p>Completed</p>
+                </div>
+
+                <div class="stat">
+                  <div>${this.formatTime(this.timeSeconds)}</div>
+                  <p>Time Taken</p>
+                </div>
+
+                <div class="stat">
+                  <div>${this.mistakes}</div>
+                  <p>Mistakes</p>
+                </div>
+
+                <div class="stat">
+                  <div>${this.finalScore}</div>
+                  <p>Score</p>
+                </div>
+
+              </div>
+
+              <hr>
+
+              <div class="leaderboard">
+                <h6>Current Leader</h6>
+                <p>${leader ? `${leader.name}` : 'No leader yet'}</p>
+              </div>
+
+            `
+            ,
+              imageUrl: 'assets/images/star.png',
+              imageWidth: 75,
+              imageHeight: 75,
+              imageAlt: 'star',
+            confirmButtonText: "OKAY",
+              customClass: {
+                image: 'completed-star'
+              }
+          });
+        });
+      },
       error: err => console.error('Failed to submit result', err)
     });
 
-    Swal.fire({
-      title: "Round Finished",
-      html: `
-        <b>Correct Groups:</b> ${this.completedGroups.length}/4<br>
-        <b>Mistakes:</b> ${this.mistakes}/${this.maxMistakes}<br>
-        <b>Time:</b> ${this.timeSeconds}s<br><br>
-        <b>Score:</b> ${this.finalScore}
-      `,
-      icon: "info",
-      confirmButtonText: "Start Next Round"
-    }).then(() => {
-      this.loadNextRound();
-    });
+
+    this.showNextRoundButton = true;
+  }
+
+
+  goToNextRound() {
+    this.showNextRoundButton = false;
+    this.loadNextRound();
   }
 
   loadNextRound() {
-    this.gameService.getLatestRound(this.roomCode).subscribe(round => {
-      this.puzzle = round.puzzle;
-      this.roundId = round.round_number;
-      this.words = this.puzzle.groups.map((g: any) => g.words).flat();
-      this.words = this.shuffleArray(this.words);
+    this.gameService.getNextRound(this.roomCode, this.playerId)
+      .subscribe({
+        next: (round) => {
+          if (!round) {
+            Swal.fire('Game Over', 'You have completed all rounds!', 'info');
+            return;
+          }
 
-      // reset stats
-      this.timeSeconds = 0;
-      this.mistakes = 0;
-      this.puzzleCompleted = false;
-      this.completedGroups = [];
-      this.selectedWords = [];
+          // set puzzle and stats
+          this.puzzle = round.puzzle;
+          this.roundId = round.id;
+          this.currentRoundNumber = round.round_number;
 
-      this.startTimer();
-    });
+          this.words = this.puzzle.groups
+            .map((g: any) => g.words)
+            .flat();
+          this.words = this.shuffleArray(this.words);
+
+          // Reset stats
+          this.timeSeconds = 0;
+          this.mistakes = 0;
+          this.puzzleCompleted = false;
+          this.completedGroups = [];
+          this.selectedWords = [];
+
+          this.startTimer();
+        },
+        error: (err) => {
+          Swal.fire('Error', 'Failed to load next round', 'error');
+        }
+      });
+  }
+
+  range(n: number): number[] {
+    return Array.from({ length: n }, (_, i) => i);
+  }
+
+  makeMistake() {
+    if (this.mistakes < this.maxMistakes) {
+      this.mistakes++;
+    }
   }
 
   shuffleArray(array: any[]) {
@@ -245,6 +495,10 @@ export class AppComponent {
     setTimeout(() => {
       this.isShaking = false;
     }, 500);
+  }
+
+  delay(ms: number) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
 }

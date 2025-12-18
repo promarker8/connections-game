@@ -116,6 +116,37 @@ app.get("/rooms", async (req, res) => {
     }
 });
 
+// Get next unplayed round for a player in a room
+app.get("/room/:code/round/next/:playerId", async (req, res) => {
+  try {
+    const { code, playerId } = req.params;
+
+    const { rows } = await pool.query(
+      `
+      SELECT r.*
+      FROM rounds r
+      LEFT JOIN scores s
+        ON s.round_id = r.id
+        AND s.player_id = $2
+      WHERE r.room_code = $1
+        AND s.id IS NULL
+      ORDER BY r.round_number ASC
+      LIMIT 1
+      `,
+      [code, playerId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: "No more rounds available" });
+    }
+
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("Failed to get next round:", err);
+    res.status(500).json({ error: "Failed to get next round" });
+  }
+});
+
 // create a round in a specific room
 app.post("/room/:code/create-round", async (req, res) => {
   try {
@@ -240,6 +271,16 @@ app.post("/join-room", async (req, res) => {
         if (!rows.length) return res.status(404).json({ error: "Room not found" });
 
         // Add player to table
+        // If the playerName is "DevTesterAdmin", skip uniqueness check
+        // if (playerName === "DevTesterAdmin") {
+        //     const result = await pool.query(
+        //         `INSERT INTO players (room_code, name) VALUES ($1, $2) RETURNING id, name`,
+        //         [roomCode, playerName]
+        //     );
+        //     return res.json({ playerId: result.rows[0].id, name: result.rows[0].name });
+        // }
+
+        // Otherwise, enforce unique names
         const result = await pool.query(
             `INSERT INTO players (room_code, name) VALUES ($1, $2) RETURNING id, name`,
             [roomCode, playerName]
@@ -247,6 +288,9 @@ app.post("/join-room", async (req, res) => {
 
         res.json({ playerId: result.rows[0].id, name: result.rows[0].name });
     } catch (err) {
+          // if (err.code === '23505') {
+          //   return res.status(409).json({ error: "Someone is already called that :(" });
+          // }
         console.error(err);
         res.status(500).json({ error: "Failed to join room" });
     }
@@ -263,6 +307,54 @@ app.get("/players", async (req, res) => {
         console.error(err);
         res.status(500).json({ error: "Failed to get players" });
     }
+});
+
+// get individual player details
+app.get("/players/:playerId", async (req, res) => {
+  try {
+    const { playerId } = req.params;
+
+    // Get player info
+    const { rows: playerRows } = await pool.query(
+      `SELECT id, name, room_code FROM players WHERE id = $1`,
+      [playerId]
+    );
+    if (!playerRows.length) return res.status(404).json({ error: "Player not found" });
+
+    const player = playerRows[0];
+
+    // Get room info
+    const { rows: roomRows } = await pool.query(
+      `SELECT code, name FROM rooms WHERE code = $1`,
+      [player.room_code]
+    );
+
+    const room = roomRows[0] || null;
+
+    // Get rounds that this player has submitted scores for
+    const { rows: rounds } = await pool.query(
+      `SELECT r.id AS round_id, r.round_number, r.puzzle,
+              s.points, s.mistakes, s.time_seconds
+       FROM rounds r
+       JOIN scores s ON r.id = s.round_id
+       WHERE s.player_id = $1
+       ORDER BY r.round_number ASC`,
+      [playerId]
+    );
+
+    res.json({
+      player: {
+        id: player.id,
+        name: player.name,
+        room,
+        rounds
+      }
+    });
+
+  } catch (err) {
+    console.error("Failed to get player details:", err);
+    res.status(500).json({ error: "Failed to get player details" });
+  }
 });
 
 // Player submits a guess
@@ -354,6 +446,69 @@ app.post("/room/:code/round/:roundNumber/submit-result", async (req, res) => {
             details: err.message
         });
     }
+});
+
+app.get("/room/:code/scores", async (req, res) => {
+  try {
+    const roomCode = req.params.code;
+
+    const { rows } = await pool.query(
+      `
+      SELECT s.id AS score_id,
+            s.player_id,
+            p.name AS player_name,
+            r.round_number,
+            s.points,
+            s.mistakes,
+            s.time_seconds
+      FROM scores s
+      JOIN players p ON s.player_id = p.id
+      JOIN rounds r ON s.round_id = r.id
+      WHERE s.room_code = $1
+      ORDER BY r.round_number ASC, s.points DESC
+      `,
+      [roomCode]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error("Failed to get room scores:", err);
+    res.status(500).json({ error: "Failed to get room scores" });
+  }
+});
+
+// Get all scores for a specific player, including room and round info
+app.get("/player/:playerId/scores", async (req, res) => {
+  try {
+    const { playerId } = req.params;
+
+    const { rows } = await pool.query(
+      `
+      SELECT s.id as score_id,
+             s.points,
+             s.mistakes,
+             s.time_seconds,
+             r.round_number,
+             r.room_code,
+             p.name as player_name
+      FROM scores s
+      JOIN rounds r ON s.round_id = r.id
+      JOIN players p ON s.player_id = p.id
+      WHERE s.player_id = $1
+      ORDER BY r.room_code, r.round_number ASC
+      `,
+      [playerId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: "No scores found for this player" });
+    }
+
+    res.json(rows);
+  } catch (err) {
+    console.error("Failed to get player scores:", err);
+    res.status(500).json({ error: "Failed to get player scores" });
+  }
 });
 
 app.get("/room/:code/leaderboard", async (req, res) => {

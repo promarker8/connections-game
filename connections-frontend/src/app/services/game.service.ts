@@ -15,24 +15,16 @@ export class GameService {
     return this.http.post(`${this.baseUrl}/join-room`, { roomCode, playerName });
   }
 
-  getLatestRound(roomCode: string): Observable<any> {
-    return this.http.get(`${this.baseUrl}/room/${roomCode}/latest-round`);
+  getNextRound(roomCode: string, playerId: number): Observable<any> {
+    return this.http.get(`${this.baseUrl}/room/${roomCode}/round/next/${playerId}`);
   }
 
   submitRoundResult(roomCode: string, roundNumber: number, playerId: number, mistakes: number, timeSeconds: number, points: number): Observable<any> {
     return this.http.post(`${this.baseUrl}/room/${roomCode}/round/${roundNumber}/submit-result`, { playerId, mistakes, timeSeconds, points });
   }
 
-  // getPuzzle(roomCode: string): Observable<any> {
-  //   return this.http.get(`${this.baseUrl}/room/${roomCode}`);
-  // }
-
-  // submitResult(playerId: number, mistakes: number, timeSeconds: number): Observable<any> {
-  //   return this.http.post(`${this.baseUrl}/submit-result`, { playerId, mistakes, timeSeconds });
-  // }
-
-  // getWinner(roomCode: string): Observable<any> {
-  //   return this.http.get(`${this.baseUrl}/room/${roomCode}/winner`);
-  // }
+  getLeaderboard(roomCode: string): Observable<any[]> {
+    return this.http.get<any[]>(`${this.baseUrl}/room/${roomCode}/leaderboard`);
+  }
 }
 

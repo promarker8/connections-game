@@ -21,4 +21,13 @@ export class SocketService {
   onLeaderboardUpdate(callback: (players: any[]) => void) {
     this.socket.on("leaderboardUpdate", callback);
   }
+
+  onceLeaderboardUpdate(callback: (players: any[]) => void) {
+    const handler = (players: any[]) => {
+      callback(players);
+      this.socket.off('leaderboardUpdate', handler);
+    };
+    this.socket.on('leaderboardUpdate', handler);
+  }
+
 }
