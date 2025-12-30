@@ -168,21 +168,6 @@
   transform: scale(0);
 }
 
-.stats-section {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.stat {
-  padding: 2px;
-  margin: 4px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-}
-
 .disabled {
   pointer-events: none;
   opacity: 0.9;
